@@ -61,7 +61,62 @@ def shifted_color_map(vmin, vmax, cmap = None):
 
     return colors.LinearSegmentedColormap('shiftedcmap', cdict)
 
+def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
+    """Method that can be used to apply contidional formatting to whole list
     
+    See :func:`my_table_display` for usage example
+    """
+    rng = M - m
+    low = m - (rng * low)
+    high = M + (rng * high)
+    cm = shifted_color_map(vmin=low, vmax=high, cmap=cmap)
+    norm = colors.Normalize(low, high)
+    normed = norm(s.values)
+    c = [colors.rgb2hex(x) for x in cm(normed)]
+    return ['background-color: %s' % color for color in c]
+
+def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
+                     num_digits=2):
+    """Custom display of table 
+    
+    Currently applies conditional color formatting with a shifted colormap
+    (cf. :func:`shifted_color_map`) and number formatting of a dataframe.
+    
+    Note
+    ----
+    Only for viewing
+    
+    Parameters
+    ----------
+    df : DataFrame
+        table to be displayed
+    cmap : 
+        string ID of a diverging colormap (center colour preferably white)
+    low : float
+        "stretch" factor for colour / range mapping for lower end of value 
+        range (increase and coulours of left end get less intense)
+    high : float
+        "stretch" factor for colour / range mapping for upper end of value 
+        range (increase and coulours of left end get less intense)
+    c_nans : str
+        colour of NaN values
+    num_digits : int
+        number of displayed digits for table values
+        
+    Returns
+    -------
+    Styler
+        pandas Styler object ready for display
+    """
+    num_fmt = "{:." + str(num_digits) + "f}"
+    return df.style.apply(_background_gradient_list,
+                          cmap=cmap,
+                          m=df.min().min(),
+                          M=df.max().max(),
+                          low=low, 
+                          high=high).highlight_null(c_nans).format(num_fmt)
+    
+  
 def read_var_info_michaels_excel(xlspath):
     """Read short description strings for variables
     
@@ -164,6 +219,7 @@ def read_and_merge_all(file_list, var_info_dict=None,
         df = rename_index_dataframe(df, 0, prefix=replace_runid_prefix)
     else:
         df.test_case = pd.Series()
+    df.sortlevel(inplace=True)
     return df
 
 
