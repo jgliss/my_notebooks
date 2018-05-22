@@ -1,2 +1,2 @@
-# my_py3_scripts
-Repo containing high level scripting stuff
+# my_notebooks
+Repo containing notebooks for different purposes.
