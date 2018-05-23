@@ -1,6 +1,7 @@
 """Helper methods for notebooks"""
 import pandas as pd
 import numpy as np
+import os
 import xlrd
 import matplotlib.cm as colormaps
 import matplotlib.colors as colors
@@ -116,43 +117,38 @@ def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
                           low=low, 
                           high=high).highlight_null(c_nans).format(num_fmt)
     
-  
-def read_var_info_michaels_excel(xlspath):
-    """Read short description strings for variables
-    
-    The strings are available for some of the variables in Michaels analysis
-    excel table (column 3, sheet "DATA")
-    
+def exponent(num):
+    """Get exponent of input number
+        
     Parameters
     ----------
-    xlspath : location of excel spreadsheet
+    num : :obj:`float` or iterable
+        input number
     
     Returns
     -------
-    dict 
-        dictionary containing all variable names (keys) and corresponding
-        description strings (if applicable, else empty string)
+    :obj:`int` or :obj:`ndarray` containing ints
+        exponent of input number(s)
+        
+    Example
+    -------
+    >>> from pyaerocom.mathutils import exponent
+    >>> exponent(2340)
+    3
     """
-    workbook = xlrd.open_workbook(xlspath)
-    sheet = workbook.sheet_by_name('DATA')
-    
-    result = {}
-    for i, cell in enumerate(sheet.col(1)):
-        if cell.value:
-            result[cell.value] = sheet.col(2)[i].value
-       
-    return result
+    return np.floor(np.log10(abs(np.asarray(num)))).astype(int)
 
-def rename_index_dataframe(df, level=0, new_names=None, prefix=None):
+def rename_index_dataframe(df, level=0, new_names=None, prefix=None, 
+                           lead_zeros=1):
     
     if prefix is None:
         prefix = ""
-    names = sorted(df.index.get_level_values(level).value_counts().index.values)
-    
+    #names = sorted(df.index.get_level_values(level).value_counts().index.values)
+    names = df.index.get_level_values(level).value_counts().index.values
     if new_names is not None and len(new_names) == len(names):
         repl = new_names
     else:
-        repl = ["{}{}".format(prefix, x+1) for x in range(len(names))]
+        repl = ["{}{}".format(prefix, x+1).zfill(lead_zeros) for x in range(len(names))]
     
     d = od(zip(names, repl))
     
@@ -162,7 +158,9 @@ def rename_index_dataframe(df, level=0, new_names=None, prefix=None):
         mapping[v] = k
     df.test_case = pd.Series(mapping)
     return df
-    
+
+
+ 
 def read_and_merge_all(file_list, var_info_dict=None, 
                        replace_runid_prefix=None, verbose=False):
     """Read and merge list of result files into one pandas Dataframe
@@ -208,6 +206,7 @@ def read_and_merge_all(file_list, var_info_dict=None,
     
     """
     dfs = []
+    lead_zeros = exponent(len(file_list)) + 1
     for fpath in file_list:
         try:
             dfs.append(read_file_custom(fpath, var_info_dict, 
@@ -216,10 +215,12 @@ def read_and_merge_all(file_list, var_info_dict=None,
             print("Failed to read file {}".format(fpath))
     df = pd.concat(dfs)
     if replace_runid_prefix:
-        df = rename_index_dataframe(df, 0, prefix=replace_runid_prefix)
+        df = rename_index_dataframe(df, level=0, prefix=replace_runid_prefix,
+                                    lead_zeros=lead_zeros)
     else:
         df.test_case = pd.Series()
-    df.sortlevel(inplace=True)
+    df.sort_index(inplace=True)
+    #df.sortlevel(inplace=True)
     return df
 
 
@@ -330,8 +331,84 @@ def read_file_custom(fpath, var_info_dict=None, run_id=None, verbose=False):
         print("Control case: {}".format(control_case))
     return df
 
+def save_varinfo_dict_csv(data, fpath):
+    """Save dictionary containing"""
+    with open(fpath, 'w') as f:
+        for key, value in data.items():
+            f.write('%s, %s\n' % (key, value))
+    f.close()
+
+def load_varinfo_dict_csv(fpath):
+    """Load variable info from csv
+    """
+    data = od()
+    with open(fpath) as f:
+        for item in f:
+            if ',' in item:
+                key, val = item.split(',')
+                
+                data[key.strip()] = val.strip()
+            else:
+                pass # deal with bad lines of text here
+    return data
+
+def read_var_info_michaels_excel(xlspath):
+    """Read short description strings for variables
+    
+    The strings are available for some of the variables in Michaels analysis
+    excel table (column 3, sheet "DATA")
+    
+    Parameters
+    ----------
+    xlspath : location of excel spreadsheet
+    
+    Returns
+    -------
+    dict 
+        dictionary containing all variable names (keys) and corresponding
+        description strings (if applicable, else empty string)
+    """
+    workbook = xlrd.open_workbook(xlspath)
+    sheet = workbook.sheet_by_name('DATA')
+    
+    result = od()
+    for i, cell in enumerate(sheet.col(1)):
+        if cell.value:
+            result[cell.value] = sheet.col(2)[i].value
+       
+    return result
+
+def load_varinfo(try_path, catch_excel_michael):
+    """Read short description strings for variables
+    
+    Load long names of variables. Tries to load information from csv file
+    specified by input parameter ``try_path`` and if this fails, the information
+    is imported from Michaels Excel table, in which case the csv file will be 
+    created at location ``try_path``.
+    
+    Parameters
+    ----------
+    try_path : str
+        location of csv file
+    catch_excel_michael : str
+        path to Michaels Excel
+    
+    Returns
+    -------
+    dict 
+        dictionary containing all variable names (keys) and corresponding
+        description strings (if applicable, else empty string)
+    """
+    if not os.path.exists(try_path):
+        print("File {} does not exist. Loading variable info from "
+              "Excel at {}".format(try_path, catch_excel_michael))
+        var_info_dict = read_var_info_michaels_excel(catch_excel_michael)
+        save_varinfo_dict_csv(var_info_dict, try_path)
+        return var_info_dict
+    return load_varinfo_dict_csv(try_path)
+    
+    
 if __name__ == "__main__":
-    import os
     
     data_dir = "./data/michael_ascii_read/"
     files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if 
@@ -348,6 +425,9 @@ if __name__ == "__main__":
     xlspath = glob("./data/michael_ascii_read/*.xlsx", recursive=True)[0]
     
     var_info = read_var_info_michaels_excel(xlspath)
+    
+    
+    save_varinfo_dict_csv(var_info, 'data/var_info.csv')
     
     df2 =  read_file_custom(files[3], run_id="Run1")
     
@@ -366,6 +446,8 @@ if __name__ == "__main__":
     
     
     df11 = read_and_merge_all(files, replace_runid_prefix="Bla")
+    
+    var_info_load = load_varinfo_dict_csv('data/var_info.csv')
     
     
     
