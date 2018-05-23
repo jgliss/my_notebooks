@@ -6,7 +6,12 @@ import xlrd
 import matplotlib.cm as colormaps
 import matplotlib.colors as colors
 from collections import OrderedDict as od
-    
+from configparser import ConfigParser
+
+def print_dict(dictionary):
+    for k, v in dictionary.items():
+        print("{}: {}".format(k, v))
+        
 def shifted_color_map(vmin, vmax, cmap = None):
     """Shift center of a diverging colormap to value 0
     
@@ -138,6 +143,16 @@ def exponent(num):
     """
     return np.floor(np.log10(abs(np.asarray(num)))).astype(int)
 
+def load_varconfig_ini(fpath):
+    cfg = ConfigParser(allow_no_value=True)
+    cfg.read(fpath)
+    sections = cfg.sections()
+    vals_raw = cfg._sections
+    result = od()
+    for key in sections:
+        result[key] = list(vals_raw[key].keys())
+    return result
+        
 def rename_index_dataframe(df, level=0, new_names=None, prefix=None, 
                            lead_zeros=1):
     
@@ -148,7 +163,11 @@ def rename_index_dataframe(df, level=0, new_names=None, prefix=None,
     if new_names is not None and len(new_names) == len(names):
         repl = new_names
     else:
-        repl = ["{}{}".format(prefix, x+1).zfill(lead_zeros) for x in range(len(names))]
+        nums = range(len(names))
+        repl = []
+        for num in nums:
+            num_str = str(num+1).zfill(lead_zeros)
+            repl.append("{}{}".format(prefix, num_str))
     
     d = od(zip(names, repl))
     
@@ -219,7 +238,7 @@ def read_and_merge_all(file_list, var_info_dict=None,
                                     lead_zeros=lead_zeros)
     else:
         df.test_case = pd.Series()
-    df.sort_index(inplace=True)
+    #df.sort_index(inplace=True)
     #df.sortlevel(inplace=True)
     return df
 
@@ -383,7 +402,7 @@ def read_var_info_michaels_excel(xlspath):
        
     return result
 
-def load_varinfo(try_path, catch_excel_michael):
+def load_varinfo(try_path, catch_excel_michael=None):
     """Read short description strings for variables
     
     Load long names of variables. Tries to load information from csv file
@@ -396,7 +415,7 @@ def load_varinfo(try_path, catch_excel_michael):
     try_path : str
         location of csv file
     catch_excel_michael : str
-        path to Michaels Excel
+        path to Michaels Excel (optional)
     
     Returns
     -------
