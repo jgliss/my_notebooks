@@ -342,14 +342,19 @@ def load_varinfo_dict_csv(fpath):
     """Load variable info from csv
     """
     data = od()
-    with open(fpath) as f:
-        for item in f:
-            if ',' in item:
-                key, val = item.split(',')
-                
-                data[key.strip()] = val.strip()
-            else:
-                pass # deal with bad lines of text here
+    if not os.path.exists(fpath):
+        raise IOError("File not found {}".format(fpath))
+    try:
+        with open(fpath) as f:
+            for item in f:
+                if ',' in item:
+                    key, val = item.split(',')
+                    
+                    data[key.strip()] = val.strip()
+                else:
+                    pass # deal with bad lines of text here
+    except Exception as e:
+        raise IOError("Failed to load info from file. Error: {}".format(repr(e)))
     return data
 
 def read_var_info_michaels_excel(xlspath):
