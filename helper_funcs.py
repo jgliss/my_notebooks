@@ -7,159 +7,80 @@ import matplotlib.cm as colormaps
 import matplotlib.colors as colors
 from collections import OrderedDict as od
 from configparser import ConfigParser
-
-def print_dict(dictionary):
-    for k, v in dictionary.items():
-        print("{}: {}".format(k, v))
-        
-def shifted_color_map(vmin, vmax, cmap = None):
-    """Shift center of a diverging colormap to value 0
-    
-    .. note::
-    
-        This method was found `here <http://stackoverflow.com/questions/
-        7404116/defining-the-midpoint-of-a-colormap-in-matplotlib>`_ 
-        (last access: 17/01/2017). Thanks to `Paul H <http://stackoverflow.com/
-        users/1552748/paul-h>`_ who provided it.
-    
-    Function to offset the "center" of a colormap. Useful for
-    data with a negative min and positive max and if you want the
-    middle of the colormap's dynamic range to be at zero level
-    
-    :param vmin: lower end of data value range
-    :param vmax: upper end of data value range
-    :param cmap: colormap (if None, use default cmap: seismic)
-    
-    :return: 
-        - shifted colormap
-        
-    """
-
-    if cmap is None:
-        cmap = colormaps.seismic
-    elif isinstance(cmap, str):
-        cmap = colormaps.get_cmap(cmap)
-
-    midpoint = 1 - abs(vmax)/(abs(vmax) + abs(vmin))
-    cdict = {
-        'red': [],
-        'green': [],
-        'blue': [],
-        'alpha': []
-    }
-
-    # regular index to compute the colors
-    reg_index = np.linspace(0, 1, 257)
-
-    # shifted index to match the data
-    shift_index = np.hstack([
-        np.linspace(0.0, midpoint, 128, endpoint=False), 
-        np.linspace(midpoint, 1.0, 129, endpoint=True)
-    ])
-
-    for ri, si in zip(reg_index, shift_index):
-        r, g, b, a = cmap(ri)
-
-        cdict['red'].append((si, r, r))
-        cdict['green'].append((si, g, g))
-        cdict['blue'].append((si, b, b))
-        cdict['alpha'].append((si, a, a))
-
-    return colors.LinearSegmentedColormap('shiftedcmap', cdict)
-
-def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
-    """Method that can be used to apply contidional formatting to whole list
-    
-    See :func:`my_table_display` for usage example
-    """
-    rng = M - m
-    low = m - (rng * low)
-    high = M + (rng * high)
-    cm = shifted_color_map(vmin=low, vmax=high, cmap=cmap)
-    norm = colors.Normalize(low, high)
-    normed = norm(s.values)
-    c = [colors.rgb2hex(x) for x in cm(normed)]
-    return ['background-color: %s' % color for color in c]
-
-def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
-                     num_digits=2):
-    """Custom display of table 
-    
-    Currently applies conditional color formatting with a shifted colormap
-    (cf. :func:`shifted_color_map`) and number formatting of a dataframe.
-    
-    Note
-    ----
-    Only for viewing
+from traceback import format_exc
+### Pandas Dataframe manipulation
+   
+def crop_selection_dataframe(df, values, levels=None):
+    """Crop a selection from a MultiIndex Dataframe
     
     Parameters
     ----------
     df : DataFrame
-        table to be displayed
-    cmap : 
-        string ID of a diverging colormap (center colour preferably white)
-    low : float
-        "stretch" factor for colour / range mapping for lower end of value 
-        range (increase and coulours of left end get less intense)
-    high : float
-        "stretch" factor for colour / range mapping for upper end of value 
-        range (increase and coulours of left end get less intense)
-    c_nans : str
-        colour of NaN values
-    num_digits : int
-        number of displayed digits for table values
         
-    Returns
-    -------
-    Styler
-        pandas Styler object ready for display
-    """
-    num_fmt = "{:." + str(num_digits) + "f}"
-    return df.style.apply(_background_gradient_list,
-                          cmap=cmap,
-                          m=df.min().min(),
-                          M=df.max().max(),
-                          low=low, 
-                          high=high).highlight_null(c_nans).format(num_fmt)
     
-def exponent(num):
-    """Get exponent of input number
-        
-    Parameters
-    ----------
-    num : :obj:`float` or iterable
-        input number
-    
-    Returns
-    -------
-    :obj:`int` or :obj:`ndarray` containing ints
-        exponent of input number(s)
-        
-    Example
-    -------
-    >>> from pyaerocom.mathutils import exponent
-    >>> exponent(2340)
-    3
     """
-    return np.floor(np.log10(abs(np.asarray(num)))).astype(int)
-
-def load_varconfig_ini(fpath):
-    cfg = ConfigParser(allow_no_value=True)
-    cfg.read(fpath)
-    sections = cfg.sections()
-    vals_raw = cfg._sections
-    result = od()
-    for key in sections:
-        result[key] = list(vals_raw[key].keys())
-    return result
+    names = df.index.names
+    num_indices = len(names)
+    if num_indices == 1:
+        # no Multiindex
+        return df.loc[values, :]
+    else:
+        # Multiindex
+        if levels is None:
+            print("Input levels not defined for MultiIndex, assuming 0")
+            levels = [0]
+        elif isinstance(levels, str): #not a list
+            levels, values = [levels], [values]
+        else: #not a string and not None, so either a list or a number (can be checked using iter())
+            try:
+                iter(levels)
+            except:
+                #input is single level / value pair
+                levels, values = [levels], [values]        
         
+        
+        
+        if isinstance(levels[0], str):
+            level_nums = [names.index(x) for x in levels]
+        else:
+            level_nums = levels
+        
+        indexer = []
+        for idx in range(len(names)):
+            if idx in level_nums:
+                pos = level_nums.index(idx)
+                indexer.append(values[pos])
+            else:
+                indexer.append(slice(None))
+        
+        return df.loc[tuple(indexer), :]
+           
+def reindex_order_dataframe(df, new_order_list, level=0):
+    level_names = df.index.names
+    new_levels = []
+    for i, name in enumerate(level_names):
+        #current unique values of level index
+        vals = df.index.get_level_values(name).unique().values
+        if name == level or i == level:
+            if not len(new_order_list) == len(vals):
+                raise ValueError("Mismatch in lengths of input array and "
+                                 "index array.")
+            elif not all([x in vals for x in new_order_list]):
+                raise NameError("Input list is not a permutation of current "
+                                "index at level {}".format(level))
+            new_levels.append(new_order_list)
+        else:
+            new_levels.append(vals)
+    new_idx = pd.MultiIndex.from_product(new_levels, names=level_names)
+    return df.reindex(new_idx)
+     
 def rename_index_dataframe(df, level=0, new_names=None, prefix=None, 
                            lead_zeros=1):
     
     if prefix is None:
         prefix = ""
     #names = sorted(df.index.get_level_values(level).value_counts().index.values)
-    names = df.index.get_level_values(level).value_counts().index.values
+    names = df.index.get_level_values(level).unique().values
     if new_names is not None and len(new_names) == len(names):
         repl = new_names
     else:
@@ -177,9 +98,25 @@ def rename_index_dataframe(df, level=0, new_names=None, prefix=None,
         mapping[v] = k
     df.test_case = pd.Series(mapping)
     return df
+    
+    
 
+### I/O helpers
+def load_varconfig_ini(fpath):
+    cfg = ConfigParser(allow_no_value=True)
+    cfg.optionxform = str
+    cfg.read(fpath)
+    sections = cfg.sections()
+    vals_raw = cfg._sections
+    result = od()
+    for key in sections:
+        result[key] = list(vals_raw[key].keys())
+    return result
 
- 
+def print_dict(dictionary):
+    for k, v in dictionary.items():
+        print("{}: {}".format(k, v))
+      
 def read_and_merge_all(file_list, var_info_dict=None, 
                        replace_runid_prefix=None, verbose=False):
     """Read and merge list of result files into one pandas Dataframe
@@ -430,8 +367,140 @@ def load_varinfo(try_path, catch_excel_michael=None):
         save_varinfo_dict_csv(var_info_dict, try_path)
         return var_info_dict
     return load_varinfo_dict_csv(try_path)
+        
+### plotting and visualisation
+def shifted_color_map(vmin, vmax, cmap = None):
+    """Shift center of a diverging colormap to value 0
     
+    .. note::
     
+        This method was found `here <http://stackoverflow.com/questions/
+        7404116/defining-the-midpoint-of-a-colormap-in-matplotlib>`_ 
+        (last access: 17/01/2017). Thanks to `Paul H <http://stackoverflow.com/
+        users/1552748/paul-h>`_ who provided it.
+    
+    Function to offset the "center" of a colormap. Useful for
+    data with a negative min and positive max and if you want the
+    middle of the colormap's dynamic range to be at zero level
+    
+    :param vmin: lower end of data value range
+    :param vmax: upper end of data value range
+    :param cmap: colormap (if None, use default cmap: seismic)
+    
+    :return: 
+        - shifted colormap
+        
+    """
+
+    if cmap is None:
+        cmap = colormaps.seismic
+    elif isinstance(cmap, str):
+        cmap = colormaps.get_cmap(cmap)
+
+    midpoint = 1 - abs(vmax)/(abs(vmax) + abs(vmin))
+    cdict = {
+        'red': [],
+        'green': [],
+        'blue': [],
+        'alpha': []
+    }
+
+    # regular index to compute the colors
+    reg_index = np.linspace(0, 1, 257)
+
+    # shifted index to match the data
+    shift_index = np.hstack([
+        np.linspace(0.0, midpoint, 128, endpoint=False), 
+        np.linspace(midpoint, 1.0, 129, endpoint=True)
+    ])
+
+    for ri, si in zip(reg_index, shift_index):
+        r, g, b, a = cmap(ri)
+
+        cdict['red'].append((si, r, r))
+        cdict['green'].append((si, g, g))
+        cdict['blue'].append((si, b, b))
+        cdict['alpha'].append((si, a, a))
+
+    return colors.LinearSegmentedColormap('shiftedcmap', cdict)
+
+def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
+    """Method that can be used to apply contidional formatting to whole list
+    
+    See :func:`my_table_display` for usage example
+    """
+    rng = M - m
+    low = m - (rng * low)
+    high = M + (rng * high)
+    cm = shifted_color_map(vmin=low, vmax=high, cmap=cmap)
+    norm = colors.Normalize(low, high)
+    normed = norm(s.values)
+    c = [colors.rgb2hex(x) for x in cm(normed)]
+    return ['background-color: %s' % color for color in c]
+
+def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
+                     num_digits=2):
+    """Custom display of table 
+    
+    Currently applies conditional color formatting with a shifted colormap
+    (cf. :func:`shifted_color_map`) and number formatting of a dataframe.
+    
+    Note
+    ----
+    Only for viewing
+    
+    Parameters
+    ----------
+    df : DataFrame
+        table to be displayed
+    cmap : 
+        string ID of a diverging colormap (center colour preferably white)
+    low : float
+        "stretch" factor for colour / range mapping for lower end of value 
+        range (increase and coulours of left end get less intense)
+    high : float
+        "stretch" factor for colour / range mapping for upper end of value 
+        range (increase and coulours of left end get less intense)
+    c_nans : str
+        colour of NaN values
+    num_digits : int
+        number of displayed digits for table values
+        
+    Returns
+    -------
+    Styler
+        pandas Styler object ready for display
+    """
+    num_fmt = "{:." + str(num_digits) + "f}"
+    return df.style.apply(_background_gradient_list,
+                          cmap=cmap,
+                          m=df.min().min(),
+                          M=df.max().max(),
+                          low=low, 
+                          high=high).highlight_null(c_nans).format(num_fmt)
+
+### other helpers, math stuff
+def exponent(num):
+    """Get exponent of input number
+        
+    Parameters
+    ----------
+    num : :obj:`float` or iterable
+        input number
+    
+    Returns
+    -------
+    :obj:`int` or :obj:`ndarray` containing ints
+        exponent of input number(s)
+        
+    Example
+    -------
+    >>> from pyaerocom.mathutils import exponent
+    >>> exponent(2340)
+    3
+    """
+    return np.floor(np.log10(abs(np.asarray(num)))).astype(int)
+
 if __name__ == "__main__":
     
     data_dir = "./data/michael_ascii_read/"
@@ -473,6 +542,19 @@ if __name__ == "__main__":
     
     var_info_load = load_varinfo_dict_csv('data/var_info.csv')
     
+    import pandas, io
     
+        
     
+    data = io.StringIO('''Fruit,Color,Count,Price
+    Apple,Red,3,$1.29
+    Apple,Green,9,$0.99
+    Pear,Red,25,$2.59
+    Pear,Green,26,$2.79
+    Lime,Green,99,$0.39
+    ''')
+    df_unindexed = pandas.read_csv(data)
+    df_unindexed
+    df_cropped = crop_selection_dataframe(df_unindexed, [4,2])
+    print(df_cropped)
     
