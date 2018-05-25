@@ -8,8 +8,26 @@ import matplotlib.colors as colors
 from collections import OrderedDict as od
 from configparser import ConfigParser
 from traceback import format_exc
+import matplotlib.pyplot as plt
+from seaborn import heatmap
 ### Pandas Dataframe manipulation
    
+def stack_dataframe_original_idx(df):
+    if not isinstance(df.columns, pd.MultiIndex):
+        raise AttributeError("Need an unstacked Dataframe")  
+        
+    levels_unstacked = df.columns.names[1:]
+    stacked = df.stack(levels_unstacked)
+    order_orig = tuple(np.roll(stacked.index.names, len(levels_unstacked)))
+    return stacked.reorder_levels(order=order_orig)
+
+def stack_dataframe(df, level_names):
+    if isinstance(level_names, str):
+        level_names = [level_names]
+    stacked = df.stack(level_names)
+    order_orig = tuple(np.roll(stacked.index.names, len(level_names)))
+    return stacked.reorder_levels(order=order_orig)
+
 def crop_selection_dataframe(df, values, levels=None):
     """Crop a selection from a MultiIndex Dataframe
     
@@ -438,6 +456,38 @@ def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
     c = [colors.rgb2hex(x) for x in cm(normed)]
     return ['background-color: %s' % color for color in c]
 
+def cmap_midpoint_val(vmin, vmax):
+    """Compute value that is mapped to the center color of a cmap
+    
+    Parameters
+    ----------
+    vmin : float
+        lower end of range
+    vmax : float
+        upper end of range
+        
+    Returns
+    -------
+    axes
+        instance of matplotlib axes
+        
+    """
+    return 1 - abs(vmax)/(abs(vmax) + abs(vmin))
+
+def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False, 
+                  annot=True, num_digits=2, ax=None, figsize=None, **kwargs):
+    num_fmt = ".{}f".format(num_digits)
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+    if cmap_shifted:
+        midpoint = cmap_midpoint_val(df.min().min(), df.max().max())
+    if normalise_rows:
+        df = df.div(df.max(axis=1), axis=0)
+    return heatmap(df, center=midpoint, cmap=cmap, annot=annot, ax=ax,
+                   fmt=num_fmt)
+        
+    
+        
 def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
                      num_digits=2):
     """Custom display of table 

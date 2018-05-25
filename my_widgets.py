@@ -3,15 +3,287 @@ from collections import OrderedDict as od
 import ipywidgets as ipw
 from copy import deepcopy
 import pandas as pd
-from helper_funcs import (save_varinfo_dict_csv, 
-                          load_varinfo_dict_csv, 
-                          load_varconfig_ini,
-                          crop_selection_dataframe)
-
+import traitlets
+from tkinter import Tk, filedialog
+import helper_funcs as helpers
 from traceback import format_exc
 import numpy as np
 
 ### WORKING
+
+class SaveAsButton(ipw.Button):
+    """A file widget that leverages tkinter.filedialog.
+    
+    Based on and modified from ``SelectFilesButton`` (see below) or here: 
+        
+    https://codereview.stackexchange.com/questions/162920/file-selection-button-for-jupyter-notebook
+    
+    """
+
+    def __init__(self, save_dir=None):
+        super(SaveAsButton, self).__init__()
+        # Add the selected_files trait
+        self.add_traits(files=traitlets.traitlets.List())
+        
+        if not save_dir:
+            save_dir = os.getcwd()
+        self.save_dir = save_dir
+        # Create the button.
+        self.description = "Save as"
+        self.icon = "square-o"
+        self.style.button_color = "orange"
+        self.file_name = ""
+        # Set on click behavior.
+        self.on_click(self.save_as)
+
+
+    def save_as(self, b):
+        """Generate instance of tkinter.asksaveasfilename
+
+        Parameters
+        ----------
+        b : obj:
+            An instance of ipywidgets.widgets.Button 
+        """
+        # Create Tk root
+        root = Tk()
+        # Hide the main window
+        root.withdraw()
+        # Raise the root to the top of all windows.
+        root.call('wm', 'attributes', '.', '-topmost', True)
+        # List of selected fileswill be set to b.value
+        self.file_name = filedialog.asksaveasfilename(initialdir=self.save_dir,
+                                                      title = "Save as",
+                                                      filetypes = (("csv files","*.csv"),("all files","*.*")))
+
+        self.description = "Files Selected"
+        self.icon = "check-square-o"
+        self.style.button_color = "lightgreen"
+        
+class TableView(object):        
+    _base_layout = ipw.Layout(flex='0 1 auto', width='200px')
+    _btn_width = "75px"
+    def __init__(self, df, save_dir=None, **plot_settings):
+        
+        if save_dir is None:
+            save_dir = os.getcwd()
+        
+        self.save_as_funcs = dict(csv = self.save_csv, 
+                                  xlsx = self.save_xlsx)
+        self.save_dir = save_dir
+        self.df = df
+        self.df_edit = self.check_shape_init(df)
+        
+        self.disp_settings = od(cmap="bwr",
+                                cmap_shifted=True,)
+        self.disp_table = ipw.Output()
+        self.output = ipw.Output()
+        self.init_layout()
+        self.disp_current()
+        
+        self.disp_settings.update(plot_settings)
+        
+    @property
+    def column_names(self):
+        return list(self.df_edit.columns)
+    
+    @property
+    def index_level_names(self):
+        return self.df_edit.index.names
+    
+    @property
+    def index_level_col_names(self):
+        return self.df_edit.columns.names[1:]
+    
+    def init_layout(self):
+        # create widgets
+        btn_reset = ipw.Button(description = "Reset", layout=ipw.Layout(width=self._btn_width))
+        btn_reset.on_click(self.on_reset)
+        
+        # COLUMN TO INDEX
+        col2idx_header = ipw.Label("Column to index")
+        col2idx_descr = ipw.Label("Add selected columns to Multiindex")
+        self.col2idx_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.column_names, 
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        col2idx_btn_apply = ipw.Button(description = "Add", layout=ipw.Layout(width=self._btn_width))
+        col2idx_btn_apply.on_click(self.on_add_col)
+        col2idx_btn_apply.style.button_color = 'lightgreen'
+        
+        col2idx_layout = ipw.VBox([col2idx_header,
+                                   col2idx_descr,
+                                   self.col2idx_select,
+                                   ipw.HBox([btn_reset, col2idx_btn_apply])])
+        
+        # UNSTACKING
+        unstack_header = ipw.Label("Unstack index")
+        unstack_descr = ipw.Label("Put selected indices into columns")
+        self.unstack_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.index_level_names, 
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        unstack_btn_apply = ipw.Button(description = "Apply", layout=ipw.Layout(width=self._btn_width))
+        unstack_btn_apply.on_click(self.on_unstack)
+        unstack_btn_apply.style.button_color = 'lightgreen'
+        
+        unstack_layout = ipw.VBox([unstack_header,
+                                   unstack_descr,
+                                   self.unstack_select,
+                                   ipw.HBox([btn_reset, unstack_btn_apply])])
+        
+        
+        # STACKING
+        stack_header = ipw.Label("Stack index")
+        stack_descr = ipw.Label("Put selected indices into rows")
+        self.stack_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.index_level_col_names,
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        stack_btn_apply = ipw.Button(description = "Apply", layout=ipw.Layout(width=self._btn_width))
+        stack_btn_apply.on_click(self.on_stack)
+        stack_btn_apply.style.button_color = 'lightgreen'
+        
+        stack_layout = ipw.VBox([stack_header,
+                                 stack_descr,
+                                 self.stack_select,
+                                 ipw.HBox([btn_reset, stack_btn_apply])])
+        
+        ### Further options
+        opts = []
+        save_as_btn = ipw.Button(description="Save as", 
+                                tooltip="Save current Dataframe as file",
+                                layout=ipw.Layout(width=self._btn_width))
+        save_as_btn.style.button_color = 'lightgreen'
+        save_as_btn.on_click(self.on_saveas)
+        
+        opts.append(save_as_btn)
+        
+        opts_layout = ipw.VBox(opts)
+        
+        
+        edit_ui = ipw.HBox([col2idx_layout, 
+                            unstack_layout, 
+                            stack_layout,
+                            opts_layout])
+        
+        
+        
+        self.layout = ipw.VBox([edit_ui, 
+                                self.disp_table,
+                                self.output])
+    
+        
+        
+    def on_add_col(self, b):
+        var_names = list(self.col2idx_select.value)
+        self.add_to_index(var_names)
+        self.update_ui()
+    
+    def on_unstack(self, b):
+        level_names = list(self.unstack_select.value)
+        self.unstack(level_names)
+        self.update_ui()
+        
+    def on_stack(self, b):
+        level_names = list(self.stack_select.value)
+        self.stack(level_names)
+        self.update_ui()
+        
+    def on_saveas(self, b):
+        self.save_as()
+
+        
+    def on_reset(self, b):
+        self.reset()
+        self.update_ui()
+
+                                   
+    def update_ui(self):
+        """Recreate user interface"""
+        if isinstance(self.df_edit.columns, pd.MultiIndex):
+            self.col2idx_select.options = ("N/A", "Current dataframe is unstacked")
+            self.col2idx_select.disabled = True
+        else:
+            self.col2idx_select.options = self.column_names
+            self.col2idx_select.value=()
+            self.col2idx_select.disabled = False
+        
+        self.unstack_select.options = self.index_level_names
+        self.unstack_select.value = ()
+        
+        self.stack_select.options = self.index_level_col_names
+        self.stack_select.value = ()
+        
+        self.disp_table.clear_output()
+        self.disp_current()
+        
+    def check_shape_init(self, df):
+        if isinstance(df.columns, pd.MultiIndex):
+            #print("Initial Dataframe is unstacked, stacking back")
+            return helpers.stack_dataframe_original_idx(df)
+        return deepcopy(df)
+    
+    def add_to_index(self, var_names):
+        if isinstance(var_names, str):
+            var_names = [var_names]
+        for item in var_names:
+            self.df_edit = self.df_edit.set_index([self.df_edit.index, item])
+    
+    def unstack(self, level_names):
+        self.df_edit = self.df_edit.unstack(level_names)
+        
+    def stack(self, level_names):
+        self.df_edit = helpers.stack_dataframe(self.df_edit, level_names)
+        
+    def reset(self):
+        self.df_edit = self.check_shape_init(self.df)
+        
+    def disp_current(self):
+        #self.output.append_display_data(ipw.Label("PREVIEW current selection", fontsize=22))
+        preview = helpers.my_table_display(self.df_edit)
+        self.disp_table.append_display_data(self.df_edit.head().style.set_caption("PREVIEW"))
+        #self.output
+        
+    def save_csv(self, fpath):
+        self.df_edit.to_csv(fpath)
+    
+    def save_xlsx(self, fpath):
+        writer = pd.ExcelWriter(fpath)
+        self.df_edit.to_excel(writer)
+        writer.save()
+        writer.close()
+        
+        
+    def save_as(self):
+        """Generate instance of tkinter.asksaveasfilename
+        """
+        # Create Tk root
+        root = Tk()
+        # Hide the main window
+        root.withdraw()
+        # Raise the root to the top of all windows.
+        root.call('wm', 'attributes', '.', '-topmost', True)
+        # List of selected fileswill be set to b.value
+        filename = filedialog.asksaveasfilename(initialdir=self.save_dir,
+                                                title = "Save as",
+                                                filetypes = (("csv files","*.csv"),
+                                                             ("Excel files","*.xlsx")))
+
+        msg = "Could not save {}. Invalid file type".format(filename)
+        for ftype, func in self.save_as_funcs.items():
+            if filename.lower().endswith(ftype):
+                try:
+                    func(filename)
+                    msg = "Succesfully saved: {}".format(filename)
+                except Exception as e:
+                    msg = ("Failed to save {}. Error {}".format(filename, repr(e)))
+        
+        self.output.append_display_data(msg)
+      
+    def __call__(self):
+        return self.layout
+    
 class IndexRenamer(object):
     output = ipw.Output()
     def __init__(self, df, level=0, suggestions=[]):
@@ -39,7 +311,7 @@ class IndexRenamer(object):
     def init_widgets(self):
         
         self.btn_apply = ipw.Button(description='Apply')
-        self.btn_apply.style.button_color = "lime"
+        self.btn_apply.style.button_color = "lightgreen"
         
         self.input_rows = []
         self.input_fields = []
@@ -99,7 +371,7 @@ class SelectVariable(object):
         self.groups = od()
         self.groups["flagged"] = self.flagged_vars
         if preconfig_file:
-            self.groups.update(load_varconfig_ini(preconfig_file))
+            self.groups.update(helpers.load_varconfig_ini(preconfig_file))
         if default_group is None:
             default_group = "flagged"
         
@@ -138,7 +410,7 @@ class SelectVariable(object):
         self.btn_select_all = ipw.Button(description='Select all')
         self.btn_flagged = ipw.Button(description="Flagged")
         self.btn_apply = ipw.Button(description='Apply')
-        self.btn_apply.style.button_color = 'lime'
+        self.btn_apply.style.button_color = 'lightgreen'
 
         self.var_selector = ipw.SelectMultiple(description='', 
                                                options=self.vals, 
@@ -208,7 +480,9 @@ class SelectVariable(object):
         
     def crop_selection(self):
         try:
-            self._df_edit = crop_selection_dataframe(self.df, self.var_selector.value, levels=self.level)
+            self._df_edit = helpers.crop_selection_dataframe(self.df, 
+                                                             self.var_selector.value, 
+                                                             levels=self.level)
         except Exception as e:
             print("WARNING: failed to extract selection.\nTraceback {}".format(format_exc()))
     
@@ -254,7 +528,7 @@ class EditDictCSV(object):
         self.btn_save = ipw.Button(description='Update and save',
                                      tooltip='Updates current selection and writes to CSV')
         
-        self.btn_save.style.button_color = "lime"
+        self.btn_save.style.button_color = "lightgreen"
         
         self.input_rows = []
         self.input_fields = {}
@@ -291,13 +565,13 @@ class EditDictCSV(object):
     
     def save_csv(self):
         self.apply_changes()
-        save_varinfo_dict_csv(self.var_dict, self.csv_loc)
+        helpers.save_varinfo_dict_csv(self.var_dict, self.csv_loc)
         
     def load_csv(self):
         if self.csv_loc is None or not os.path.exists(self.csv_loc):
             raise IOError("Please provide path to csv file")
         try:
-            self.var_dict = load_varinfo_dict_csv(self.csv_loc)
+            self.var_dict = helpers.load_varinfo_dict_csv(self.csv_loc)
         except Exception as e:
             self.write_to_output(format_exc())
     
@@ -323,6 +597,48 @@ class EditDictCSV(object):
     
 
 ### DOWNLOADED
+        
+class SelectFilesButton(ipw.Button):
+    """A file widget that leverages tkinter.filedialog.
+    
+    
+    Downloaded here: https://codereview.stackexchange.com/questions/162920/file-selection-button-for-jupyter-notebook
+    
+    """
+
+    def __init__(self):
+        super(SelectFilesButton, self).__init__()
+        # Add the selected_files trait
+        self.add_traits(files=traitlets.traitlets.List())
+        # Create the button.
+        self.description = "Select Files"
+        self.icon = "square-o"
+        self.style.button_color = "orange"
+        # Set on click behavior.
+        self.on_click(self.select_files)
+
+    @staticmethod
+    def select_files(b):
+        """Generate instance of tkinter.filedialog.
+
+        Parameters
+        ----------
+        b : obj:
+            An instance of ipywidgets.widgets.Button 
+        """
+        # Create Tk root
+        root = Tk()
+        # Hide the main window
+        root.withdraw()
+        # Raise the root to the top of all windows.
+        root.call('wm', 'attributes', '.', '-topmost', True)
+        # List of selected fileswill be set to b.value
+        b.files = filedialog.askopenfilename(multiple=True)
+
+        b.description = "Files Selected"
+        b.icon = "check-square-o"
+        b.style.button_color = "lightgreen"
+        
 class FileBrowser(object):
     """Widget for browsing files interactively
     
@@ -411,7 +727,7 @@ class SelectVariableNew(object):
         self.btn_select_all = ipw.Button(description='Select all')
         self.btn_flagged = ipw.Button(description="Flagged")
         self.btn_apply = ipw.Button(description='Apply')
-        self.btn_apply.style.button_color = 'lime'
+        self.btn_apply.style.button_color = 'lightgreen'
         
         self.items = []
         self.input_fields = []
@@ -547,7 +863,7 @@ class ReshapeAndSelect(object):
         self.btn_select_all = ipw.Button(description='Select all')
         self.btn_flagged = ipw.Button(description="Flagged")
         self.btn_apply = ipw.Button(description='Apply')
-        self.btn_apply.style.button_color = 'lime'
+        self.btn_apply.style.button_color = 'lightgreen'
 
         self.var_selector = ipw.SelectMultiple(description="Variables", 
                                                options=self.vals, 
