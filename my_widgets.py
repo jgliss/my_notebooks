@@ -1,6 +1,7 @@
 import os
 from collections import OrderedDict as od
 import ipywidgets as ipw
+from IPython.display import display
 from copy import deepcopy
 import pandas as pd
 import traitlets
@@ -8,6 +9,7 @@ from tkinter import Tk, filedialog
 import helper_funcs as helpers
 from traceback import format_exc
 import numpy as np
+import matplotlib.pyplot as plt
 
 ### WORKING
 
@@ -197,8 +199,7 @@ class TableView(object):
     def on_reset(self, b):
         self.reset()
         self.update_ui()
-
-                                   
+        
     def update_ui(self):
         """Recreate user interface"""
         if isinstance(self.df_edit.columns, pd.MultiIndex):
@@ -283,6 +284,519 @@ class TableView(object):
       
     def __call__(self):
         return self.layout
+
+class TableEditor(object):
+    _base_layout = ipw.Layout(flex='0 1 auto', width='200px', height='150px')
+    _btn_width = "100px"
+    def __init__(self, df, save_dir=None, preconfig_file=None, 
+                 default_group=None, new_run_names=[], add_to_index_vars=[], 
+                 unstack_indices=[], run_level_idx=0, var_level_idx=2, 
+                 **plot_settings):
+        
+        # Stuff for I/O
+        if save_dir is None:
+            save_dir = os.getcwd()
+        
+        self.save_as_funcs = dict(csv = self.save_csv, 
+                                  xlsx = self.save_xlsx)
+        self.save_dir = save_dir
+        
+        # the dataframe
+        self.df = df
+        self.df_edit = self.check_shape_init(df)
+        self._df_edit_last = self.df_edit
+        
+        self.extractions = od()
+        
+        self.var_level_idx = var_level_idx
+        self.run_level_idx = run_level_idx
+        
+        # Predefined settings for things applied to dataframe
+        self.new_run_names_init = new_run_names
+        self.add_to_index_vars = add_to_index_vars
+        self.unstack_indices = unstack_indices
+        
+        # Display of Dataframe
+        self.current_plot = None
+        self.disp_settings = od(cmap="bwr",
+                                cmap_shifted=True,)
+        
+        # Settings for Variable selector
+        self.groups = od()
+        self.groups["flagged"] = self.flagged_vars
+        if preconfig_file:
+            self.groups.update(helpers.load_varconfig_ini(preconfig_file))
+        
+        if default_group is None:
+            default_group = "flagged"
+        
+        if not default_group in self.groups:
+            raise ValueError("No default group with ID {} in file {}".format(default_group, preconfig_file))
+            
+        self.default_group = default_group
+        self.default_selection = self.groups[default_group]
+        
+        # init widgets and actions
+        self.init_widgets_renamer()
+        self.init_layout_renamer()
+        self.init_widgets_varselect()
+        self.init_layout_varselect()
+        self.init_layout_reshaper()
+        self.init_glob_widgets()
+        self.init_layout()
+        # initiate layout
+        
+        self.apply_changes_rename()
+        self.crop_var_selection()
+        self.add_to_index(self.add_to_index_vars)
+        self.unstack(self.unstack_indices)
+        self.update_ui()
+        self.disp_current()
+        
+        self.disp_settings.update(plot_settings)
+        
+    @property
+    def column_names(self):
+        return list(self.df_edit.columns)
+    
+    @property
+    def data_column_names(self):
+        df = self.df_edit
+        if isinstance(df.columns, pd.MultiIndex):
+            return list(df.columns.levels[0])
+        return list(df.columns)
+    
+    @property
+    def index_level_names(self):
+        return self.df_edit.index.names
+    
+    @property
+    def index_level_col_names(self):
+        return self.df_edit.columns.names[1:]
+    
+    @property
+    def run_names(self):
+        #return sorted(self.df.index.get_level_values(self.level).unique().values)
+        return self.df_edit.index.get_level_values(self.run_level_idx).unique().values
+    
+    @property
+    def flagged_vars(self):
+        lvl = self.var_level_idx
+        return list(self.df[self.df.Flag.astype(bool)].index.get_level_values(lvl).unique().values)
+
+    @property
+    def all_variables(self):
+        lvl = self.var_level_idx
+        return self.df.index.get_level_values(lvl).unique().values
+    
+    def init_glob_widgets(self):
+        self.disp_table = ipw.Output()
+        self.output = ipw.Output()
+        
+        btn_clear_output = ipw.Button(description="Clear output",
+                                     layout=ipw.Layout(width=self._btn_width))
+        btn_clear_output.on_click(self.on_clear_output)
+        
+        btn_reset = ipw.Button(description="Reset", 
+                               tooltip="Reset all changes that were applied",
+                               layout=ipw.Layout(width=self._btn_width))
+        btn_reset.on_click(self.on_reset)        
+        btn_saveas = ipw.Button(description="Save as", 
+                                tooltip="Save current Dataframe as file",
+                                layout=ipw.Layout(width=self._btn_width))
+        
+        btn_preview = ipw.Button(description="Preview")
+        btn_preview.on_click(self.on_disp_preview)
+        
+        
+        btn_saveas.style.button_color = 'lightgreen'
+        btn_saveas.on_click(self.on_saveas)
+    
+        self.glob_toolbar = ipw.HBox([btn_clear_output, 
+                                      btn_reset, 
+                                      btn_saveas,
+                                      btn_preview])
+
+    def init_layout(self):
+        
+        self.edit_ui = ipw.Tab()
+        
+        self.edit_ui.children = [self.layout_rename, 
+                                 self.layout_varselect, 
+                                 self.layout_reshaper]
+        self.edit_ui.set_title(0, "Rename run")
+        self.edit_ui.set_title(1, "Select variables")
+        self.edit_ui.set_title(2, "Reshape dataframe")
+        
+        
+        
+        self.layout = ipw.VBox([self.edit_ui,
+                                self.glob_toolbar,
+                                self.disp_table, 
+                                self.output], 
+                                layout = ipw.Layout(min_height="600px"))
+# =============================================================================
+#         self.layout.children = [self.layout_varselect, 
+#                                 self.layout_rename, 
+#                                 self.layout_reshape,
+#                                 self.layout_display]
+#         
+# =============================================================================
+    def init_widgets_renamer(self):
+        
+        self.btn_apply_rename = ipw.Button(description='Apply')
+        self.btn_apply_rename.style.button_color = "lightgreen"
+        self.btn_apply_rename.on_click(self.on_click_apply_rename)
+        self.input_rows_rename = []
+        self.input_fields_rename = []
+        
+        for i, name in enumerate(self.run_names):
+            try:
+                val = self.new_run_names_init[i]
+            except:
+                val = name
+            ipt = ipw.Text(value=val, placeholder='Insert new name',
+                            disabled=False, layout=ipw.Layout(width='100px'))
+            row = ipw.HBox([ipw.Label(name, layout=ipw.Layout(width='100px')), ipt])
+            self.input_fields_rename.append(ipt)
+            self.input_rows_rename.append(row)
+                                      
+    def init_layout_renamer(self):
+        self.layout_rename = ipw.HBox([ipw.VBox(self.input_rows_rename), 
+                                       self.btn_apply_rename])
+        
+    def init_widgets_varselect(self):
+        # Init all widgets for variable selector
+        self.btn_unselect_all = ipw.Button(description='Unselect all')
+        self.btn_select_all = ipw.Button(description='Select all')
+        self.btn_flagged = ipw.Button(description="Flagged")
+        self.btn_apply_varselect = ipw.Button(description='Apply')
+        self.btn_apply_varselect.style.button_color = 'lightgreen'
+
+        self.var_selector = ipw.SelectMultiple(description='', 
+                                               options=self.all_variables, 
+                                               value=self.default_selection, 
+                                               layout=self._base_layout)
+        
+        self.var_selector_disp = ipw.Textarea(value='', 
+                                         description='', 
+                                         disabled=True, 
+                                         layout=self._base_layout)
+        
+        
+        self.group_selector = ipw.Dropdown(options=self.groups,
+                                           value=self.default_selection,
+                                            description='',
+                                            disabled=False)
+        
+        # init all actions for widgets of variable selector
+        self.var_selector.observe(self.current_varselection)
+        self.group_selector.observe(self.on_change_dropdown)
+        #what happens when buttons are clicked
+        self.btn_select_all.on_click(self.on_select_all_vars_clicked)
+        self.btn_unselect_all.on_click(self.on_unselect_all_vars_clicked)
+        self.btn_apply_varselect.on_click(self.on_click_apply_varselect)
+        
+    def init_layout_varselect(self):
+        self.btns_varselect = ipw.VBox([self.btn_select_all, 
+                                        self.btn_unselect_all,
+                                        ipw.Label(),
+                                        self.btn_apply_varselect])
+        l = ipw.HBox([ipw.VBox([ipw.Label("Predefined"), self.group_selector]),
+                      ipw.VBox([ipw.Label("Index level {}".format(self.var_level_idx)), 
+                                self.var_selector]), 
+                      ipw.VBox([ipw.Label("Current selection"), 
+                                self.var_selector_disp]), 
+                      self.btns_varselect])
+        self.layout_varselect = l
+        
+        self.current_varselection(1)
+        
+        #self.layout = ipw.VBox([self.edit_area, self.output])
+        
+    def init_layout_reshaper(self):
+        
+        # COLUMN TO INDEX
+        col2idx_header = ipw.Label("Column to index")
+        self.col2idx_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.column_names, 
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        col2idx_btn_apply = ipw.Button(description = "Add", layout=ipw.Layout(width=self._btn_width))
+        col2idx_btn_apply.on_click(self.on_add_col)
+        col2idx_btn_apply.tooltip = "Add selected columns to Multiindex"
+        col2idx_btn_apply.style.button_color = 'lightgreen'
+        
+        col2idx_layout = ipw.VBox([col2idx_header,
+                                   self.col2idx_select,
+                                   ipw.HBox([col2idx_btn_apply])])
+        
+        # UNSTACKING
+        unstack_header = ipw.Label("Unstack index")
+        self.unstack_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.index_level_names, 
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        unstack_btn_apply = ipw.Button(description = "Apply", layout=ipw.Layout(width=self._btn_width))
+        unstack_btn_apply.on_click(self.on_unstack)
+        unstack_btn_apply.style.button_color = 'lightgreen'
+        unstack_btn_apply.tooltip = "Put selected indices into columns"
+        
+        unstack_layout = ipw.VBox([unstack_header,
+                                   self.unstack_select,
+                                   ipw.HBox([unstack_btn_apply])])
+        
+        
+        # STACKING
+        stack_header = ipw.Label("Stack index")
+        self.stack_select =  ipw.SelectMultiple(description='', 
+                                                  options=self.index_level_col_names,
+                                                  value=(), 
+                                                  layout=self._base_layout)
+        stack_btn_apply = ipw.Button(description = "Apply", layout=ipw.Layout(width=self._btn_width))
+        stack_btn_apply.on_click(self.on_stack)
+        stack_btn_apply.style.button_color = 'lightgreen'
+        stack_btn_apply.tooltip = "Put selected indices into rows"
+        
+        stack_layout = ipw.VBox([stack_header,
+                                 self.stack_select,
+                                 ipw.HBox([stack_btn_apply])])
+        # SELECT COLUMN
+        extract_header = ipw.Label("Extract column")
+        self.extract_select =  ipw.Select(description='', 
+                                          options=self.data_column_names,
+                                          layout=self._base_layout)
+        
+        extract_btn_apply = ipw.Button(description="Apply", 
+                                       layout=ipw.Layout(width=self._btn_width))
+        extract_btn_apply.on_click(self.on_extract)
+        extract_btn_apply.style.button_color = 'lightgreen'
+        extract_btn_apply.tooltip = "Extract currently selected column"
+        
+        extract_btn_undo = ipw.Button(description="Undo", 
+                                     layout=ipw.Layout(width=self._btn_width))
+        extract_btn_undo.on_click(self.on_extract_undo)
+        extract_btn_undo.tooltip = "Undo last column extraction"
+        
+        extract_layout = ipw.VBox([extract_header,
+                                   self.extract_select,
+                                   ipw.HBox([extract_btn_undo,
+                                             extract_btn_apply])])
+        
+        self.layout_reshaper = ipw.HBox([col2idx_layout, 
+                                         unstack_layout, 
+                                         stack_layout,
+                                         extract_layout])
+    
+    # Methods for renamer
+    def on_click_apply_rename(self, b):
+        self.apply_changes_rename()
+        self.disp_current()   
+        
+    def apply_changes_rename(self):
+        
+        df = self.df_edit
+        mapping = od()
+        
+        for i, name in enumerate(self.run_names):
+            repl = str(self.input_fields_rename[i].value)
+            mapping[name] = repl
+        self.df_edit = df.rename(index=mapping, level=self.run_level_idx)
+        self.output.append_display_data("Applying renaming: {}".format(mapping))
+    # Methods for variable selector
+    def on_unselect_all_vars_clicked(self, b):
+        self.unselect_all()
+    
+    def on_select_all_vars_clicked(self, b):
+        self.select_all()
+    
+    def on_change_dropdown(self, b):
+        self.select_current_group()
+        
+    def unselect_all(self):
+        self.var_selector.value = ()
+    
+    def select_all(self):
+        self.var_selector.value = self.var_selector.options
+    
+    def select_current_group(self):
+        self.var_selector.value = self.group_selector.value
+    
+    def current_varselection(self, b):
+        s=""
+        for item in self.var_selector.value:
+            s += "{}\n".format(item)
+        self.var_selector_disp.value = s
+        
+    def crop_var_selection(self):
+        try:
+            self.df_edit = helpers.crop_selection_dataframe(self.df_edit, 
+                                                            self.var_selector.value, 
+                                                            levels=self.var_level_idx)
+            self.output.append_display_data("Applying variable selection: {}".format(self.var_selector.value))
+        except Exception as e:
+            self.output.append_display_data("WARNING: failed to extract selection.\nTraceback {}".format(format_exc()))
+    
+    def on_click_apply_varselect(self, b):
+        self.crop_var_selection()
+        self.disp_current()
+        
+    # Methods for reshaper
+    def update_ui(self):
+        """Recreate user interface"""
+        if not isinstance(self.df_edit, pd.Series):
+                
+            if isinstance(self.df_edit.columns, pd.MultiIndex):
+                self.col2idx_select.options = ("N/A", "Current dataframe is unstacked")
+                self.col2idx_select.disabled = True
+                for item in self.input_fields_rename:
+                    item.disabled = True
+                self.btn_apply_rename.disabled=True
+                tip = ("Dataframe contains unstacked indices. Renaming can only be "
+                       "applied for dataframe that has not been unstacked. You "
+                       "may re-stack the dataframe using the tab 'Reshape dataframe'")
+                self.btn_apply_rename.tooltip = tip
+                self.btn_apply_varselect.disabled = True
+                self.btn_apply_varselect.tooltip = tip
+            else:
+                self.col2idx_select.options = self.column_names
+                self.col2idx_select.value=()
+                self.col2idx_select.disabled = False
+                for item in self.input_fields_rename:
+                    item.disabled = False
+                self.btn_apply_rename.disabled=False
+                self.btn_apply_varselect.disabled=False
+                tip = ("Apply current settings")
+                self.btn_apply_rename.tooltip = tip
+                self.btn_apply_varselect.tooltip = tip
+            
+            self.unstack_select.options = self.index_level_names
+            self.unstack_select.value = ()
+            
+            self.stack_select.options = self.index_level_col_names
+            self.stack_select.value = ()
+            
+            self.extract_select.options = self.data_column_names
+            
+        self.disp_table.clear_output()
+        self.disp_current()
+        
+    def on_add_col(self, b):
+        var_names = list(self.col2idx_select.value)
+        self.add_to_index(var_names)
+        self.update_ui()
+    
+    def on_unstack(self, b):
+        level_names = list(self.unstack_select.value)
+        self.unstack(level_names)
+        self.update_ui()
+        
+    def on_stack(self, b):
+        level_names = list(self.stack_select.value)
+        self.stack(level_names)
+        self.update_ui()
+       
+    def on_extract(self, b):
+        val = str(self.extract_select.value)
+        self._df_edit_last = self.df_edit
+        self.df_edit = self.df_edit[val]
+        self.update_ui()
+        
+    def on_extract_undo(self, b):
+        self.df_edit = self._df_edit_last
+        self.update_ui()
+        
+    # global events
+    def on_clear_output(self, b):
+        self.output.clear_output()
+        
+    def on_saveas(self, b):
+        self.save_as()
+        
+    def on_reset(self, b):
+        self.reset()
+        self.update_ui()
+    
+    def on_disp_preview(self, b):
+        self.disp_preview()
+
+    def check_shape_init(self, df):
+        if isinstance(df.columns, pd.MultiIndex):
+            #print("Initial Dataframe is unstacked, stacking back")
+            return helpers.stack_dataframe_original_idx(df)
+        return deepcopy(df)
+    
+    def add_to_index(self, var_names):
+        if isinstance(var_names, str):
+            var_names = [var_names]
+        for item in var_names:
+            self.df_edit = self.df_edit.set_index([self.df_edit.index, item])
+    
+    def unstack(self, level_names):
+        self.df_edit = self.df_edit.unstack(level_names)
+        
+    def stack(self, level_names):
+        self.df_edit = helpers.stack_dataframe(self.df_edit, level_names)
+        
+    def reset(self):
+        self.df_edit = self.check_shape_init(self.df)
+          
+    def disp_current(self):
+        #self.output.append_display_data(ipw.Label("PREVIEW current selection", fontsize=22))
+        self.disp_table.clear_output()
+        if isinstance(self.df_edit, pd.Series):
+            disp = self.df_edit
+        else:
+            disp = self.df_edit.head().style.set_caption("PREVIEW")
+        self.disp_table.append_display_data(disp)
+        #self.disp_table.append_display_data(preview)
+        #self.output
+        
+    def disp_preview(self):
+        self.disp_table.clear_output()
+        self.current_plot = helpers.df_to_heatmap(self.df_edit)
+        plt.show()
+        display(self.disp_table)
+        #self.disp_table.append_display_data()
+        
+    def save_csv(self, fpath):
+        self.df_edit.to_csv(fpath)
+    
+    def save_xlsx(self, fpath):
+        writer = pd.ExcelWriter(fpath)
+        self.df_edit.to_excel(writer)
+        writer.save()
+        writer.close()
+        
+        
+    def save_as(self):
+        """Generate instance of tkinter.asksaveasfilename
+        """
+        # Create Tk root
+        root = Tk()
+        # Hide the main window
+        root.withdraw()
+        # Raise the root to the top of all windows.
+        root.call('wm', 'attributes', '.', '-topmost', True)
+        # List of selected fileswill be set to b.value
+        filename = filedialog.asksaveasfilename(initialdir=self.save_dir,
+                                                title = "Save as",
+                                                filetypes = (("csv files","*.csv"),
+                                                             ("Excel files","*.xlsx")))
+
+        msg = "Could not save {}. Invalid file type".format(filename)
+        for ftype, func in self.save_as_funcs.items():
+            if filename.lower().endswith(ftype):
+                try:
+                    func(filename)
+                    msg = "Succesfully saved: {}".format(filename)
+                except Exception as e:
+                    msg = ("Failed to save {}. Error {}".format(filename, repr(e)))
+        
+        self.output.append_display_data(msg)
+      
+    def __call__(self):
+        return self.layout
     
 class IndexRenamer(object):
     output = ipw.Output()
@@ -322,8 +836,8 @@ class IndexRenamer(object):
             except:
                 val = name
             ipt = ipw.Text(value=val, placeholder='Insert new name',
-                            disabled=False, layout=ipw.Layout(width='300px'))
-            row = ipw.HBox([ipw.Label(name, layout=ipw.Layout(width='300px')), ipt])
+                            disabled=False, layout=ipw.Layout(width='100px'))
+            row = ipw.HBox([ipw.Label(name, layout=ipw.Layout(width='100px')), ipt])
             self.input_fields.append(ipt)
             self.input_rows.append(row)
                                       
@@ -333,8 +847,11 @@ class IndexRenamer(object):
         
     def init_layout(self):
         
+        
         edit_area = ipw.HBox([ipw.VBox(self.input_rows), self.btn_apply])
+
         self.layout = ipw.VBox([edit_area, self.output])
+
         
     def on_click_apply(self, b):
         self.apply_changes()
@@ -383,7 +900,10 @@ class SelectVariable(object):
         self.vals = self.df.index.get_level_values(self.level).unique().values
         
         
-        self._base_layout = ipw.Layout(flex='0 1 auto', height='250px', min_height='250px', width='auto')
+        self._base_layout = ipw.Layout(flex='0 1 auto', 
+                                       height='200px', 
+                                       min_height='200px', 
+                                       width='auto')
     
         self.init_widgets()
         self.init_actions()
@@ -393,8 +913,6 @@ class SelectVariable(object):
         self.print_current(1)
         self.crop_selection()
         self.disp_current()
-        
-        
     
     @property
     def df_edit(self):
@@ -428,7 +946,7 @@ class SelectVariable(object):
         self.group_selector = ipw.Dropdown(options=self.groups,
                                            value=self.default_selection,
                                             description='',
-                                            disabled=False,)
+                                            disabled=False)
         #self.output = ipw.Output()
         
     def init_actions(self):

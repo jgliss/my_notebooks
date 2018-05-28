@@ -12,6 +12,41 @@ import matplotlib.pyplot as plt
 from seaborn import heatmap
 ### Pandas Dataframe manipulation
    
+def calc_and_add_relerror(df, colname, unstack_indices):
+    """Calculate RMSE relative error in a rowwise manner
+    
+    This algorithm extracts the data column of a Dataframe that migh
+    
+    Parameters
+    -----------
+    df : DataFrame
+        Index or Multiindex Dataframe
+    colname : str
+        Name of column for which relative error is computed
+    unstack_indices : list
+        list specifying levels of MuliIndex that are supposed to be unstacked
+        into a column representation (i.e. along which the mean values for the
+        relative error are computed)
+    
+    Returns
+    -------
+    DataFrame
+        modified dataframe with addional column specifying the relative error
+        of the input column name
+    """
+    
+    if isinstance(df.columns, pd.MultiIndex):
+        raise AttributeError("Need multiindex dataframe that has not been "
+                             "stacked")
+    df_ana = df.unstack(unstack_indices)
+    vals = df_ana[colname]
+    vals_mean = vals.mean(axis=1, skipna=True)
+    vals_err_rel = vals.subtract(vals_mean, axis=0).div(vals_mean, axis=0)
+    stacked = vals_err_rel.stack(unstack_indices).reorder_levels(order=df.index.names)
+    df["{}_ERR".format(colname)] = stacked
+    
+    return df
+
 def stack_dataframe_original_idx(df):
     if not isinstance(df.columns, pd.MultiIndex):
         raise AttributeError("Need an unstacked Dataframe")  
@@ -195,6 +230,7 @@ def read_and_merge_all(file_list, var_info_dict=None,
         df.test_case = pd.Series()
     #df.sort_index(inplace=True)
     #df.sortlevel(inplace=True)
+    df = df[df.columns].astype(float)
     return df
 
 
@@ -476,6 +512,15 @@ def cmap_midpoint_val(vmin, vmax):
 
 def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False, 
                   annot=True, num_digits=2, ax=None, figsize=None, **kwargs):
+    if not isinstance(df.columns, pd.MultiIndex):
+        raise AttributeError("So far, heatmaps can only be created for "
+                             "single column tabular data (e.g. Bias or "
+                             "RMSE) with a partly unstacked MultiIndex")
+        
+    if df.columns.names[0] is None and len(df.columns.levels[0]) > 1:
+        raise AttributeError("Heatmaps can only be plotted for single "
+                             "column data (e.g. Bias, RMSE). Please "
+                             "extract column first")
     num_fmt = ".{}f".format(num_digits)
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
