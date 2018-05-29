@@ -7,7 +7,6 @@ import matplotlib.cm as colormaps
 import matplotlib.colors as colors
 from collections import OrderedDict as od
 from configparser import ConfigParser
-from traceback import format_exc
 import matplotlib.pyplot as plt
 from seaborn import heatmap
 ### Pandas Dataframe manipulation
@@ -492,23 +491,6 @@ def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
     c = [colors.rgb2hex(x) for x in cm(normed)]
     return ['background-color: %s' % color for color in c]
 
-def cmap_midpoint_val(vmin, vmax):
-    """Compute value that is mapped to the center color of a cmap
-    
-    Parameters
-    ----------
-    vmin : float
-        lower end of range
-    vmax : float
-        upper end of range
-        
-    Returns
-    -------
-    axes
-        instance of matplotlib axes
-        
-    """
-    return 1 - abs(vmax)/(abs(vmax) + abs(vmin))
 
 def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False, 
                   annot=True, num_digits=2, ax=None, figsize=None, **kwargs):
@@ -524,12 +506,16 @@ def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False,
     num_fmt = ".{}f".format(num_digits)
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
-    if cmap_shifted:
-        midpoint = cmap_midpoint_val(df.min().min(), df.max().max())
+    else:
+        fig = ax.figure
     if normalise_rows:
         df = df.div(df.max(axis=1), axis=0)
-    return heatmap(df, center=midpoint, cmap=cmap, annot=annot, ax=ax,
-                   fmt=num_fmt)
+    center=None
+    if cmap_shifted:
+        center=0
+    ax = heatmap(df, center=center, cmap=cmap, annot=annot, ax=ax, fmt=num_fmt)
+    fig.tight_layout()
+    return ax
         
     
         
