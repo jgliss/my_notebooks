@@ -31,7 +31,8 @@ class TableEditor(object):
             save_dir = os.getcwd()
         
         self.saveas_funs = dict(csv = self.save_csv, 
-                                xlsx = self.save_xlsx)
+                                xlsx = self.save_xlsx,
+                                png  = self.save_png)
         
         self.plot_funs = dict(heatmap = self.plot_heatmap)
         
@@ -72,6 +73,7 @@ class TableEditor(object):
         self.default_group = default_group
         self.default_selection = self.groups[default_group]
         
+        self._buttons_edit_df = []
         # init widgets and actions
         self.init_widgets_renamer()
         self.init_layout_renamer()
@@ -223,7 +225,9 @@ class TableEditor(object):
             row = ipw.HBox([ipw.Label(name, layout=ipw.Layout(width='100px')), ipt])
             self.input_fields_rename.append(ipt)
             self.input_rows_rename.append(row)
-                                      
+        
+        self._buttons_edit_df.extend([self.btn_apply_rename])
+        
     def init_layout_renamer(self):
         self.layout_rename = ipw.HBox([ipw.VBox(self.input_rows_rename), 
                                        self.btn_apply_rename])
@@ -259,6 +263,10 @@ class TableEditor(object):
         self.btn_select_all.on_click(self.on_select_all_vars_clicked)
         self.btn_unselect_all.on_click(self.on_unselect_all_vars_clicked)
         self.btn_apply_varselect.on_click(self.on_click_apply_varselect)
+        
+        self._buttons_edit_df.extend([self.btn_select_all,
+                                      self.btn_unselect_all,
+                                      self.btn_apply_varselect])
         
     def init_layout_varselect(self):
         self.btns_varselect = ipw.VBox([self.btn_select_all, 
@@ -351,7 +359,10 @@ class TableEditor(object):
                                          stack_layout,
                                          extract_layout])
         
-    
+        self._buttons_edit_df.extend([col2idx_btn_apply,
+                                      unstack_btn_apply,
+                                      stack_btn_apply,
+                                      extract_btn_apply])
     # Methods for renamer
     def on_click_apply_rename(self, b):
         self.apply_changes_rename()
@@ -465,10 +476,18 @@ class TableEditor(object):
         self._df_edit_last = self.df_edit
         self.df_edit = self.df_edit[val]
         self.update_ui()
+        self.freeze_ui()
+        self.disp_current()
         
+    def freeze_ui(self, disable=True):
+        for btn in self._buttons_edit_df:
+            btn.disabled = disable
+            
     def on_extract_undo(self, b):
         self.df_edit = self._df_edit_last
         self.update_ui()
+        self.freeze_ui(False)
+        self.disp_current()
         
     # global events
     def on_clear_output(self, b):
@@ -519,18 +538,27 @@ class TableEditor(object):
         #self.disp_table.append_display_data(preview)
         #self.output
        
-    def plot_heatmap(self):
+    def plot_heatmap(self, ax):
         try:
-            self.current_plot = helpers.df_to_heatmap(self.df_edit, 
+            self.current_plot = helpers.df_to_heatmap(self.df_edit, ax=ax, 
                                                       **self.heatmap_settings)
         except Exception as e:
             self.output.append_display_data("Failed to plot heatmap: Error "
                                             "message: {}".format(repr(e)))
         
-        
-    def plot(self):        
-        self.default_plot_fun()
+    def plot(self):
+        self.disp_table.clear_output()
+        with self.disp_table:
+            fig, ax = plt.subplots(1,1, figsize=(14, 8))
+            self.plot_heatmap(ax=ax)
+            plt.show()
+            
+            #self.default_plot_fun()
         #self.disp_table.append_display_data()
+    def save_png(self, fpath):
+        if not self.current_plot:
+            self.default_plot_fun()
+        self.current_plot.figure.savefig(fpath)
         
     def save_csv(self, fpath):
         self.df_edit.to_csv(fpath)
@@ -554,7 +582,8 @@ class TableEditor(object):
         filename = filedialog.asksaveasfilename(initialdir=self.save_dir,
                                                 title = "Save as",
                                                 filetypes = (("csv files","*.csv"),
-                                                             ("Excel files","*.xlsx")))
+                                                             ("Excel files","*.xlsx"),
+                                                             ("PNG files", "*.png")))
         return filename
         
     def save(self):
