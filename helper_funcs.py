@@ -8,6 +8,7 @@ import matplotlib.colors as colors
 from collections import OrderedDict as od
 from configparser import ConfigParser
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 from seaborn import heatmap
 ### Pandas Dataframe manipulation
    
@@ -492,8 +493,25 @@ def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
     return ['background-color: %s' % color for color in c]
 
 
-def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False, 
-                  annot=True, num_digits=2, ax=None, figsize=None, **kwargs):
+def df_to_heatmap(df, cmap="bwr", center=0, normalise_rows=False, 
+                  normalise_rows_col=None,
+                  annot=True, num_digits=2, ax=None, figsize=None, 
+                  table_name="", **kwargs):
+    """Plot a dataframe as heatmap
+    
+    Parameters
+    ----------
+    df : DataFrame
+        table data
+    cmap : str
+        string specifying colormap to be used
+    center : float
+        value that is mapped to center colour of colormap (e.g. 0)
+    normalise_rows : bool
+        if True, the table is normalised in a rowwise manner
+    
+    """
+    
     if not isinstance(df.columns, pd.MultiIndex):
         raise AttributeError("So far, heatmaps can only be created for "
                              "single column tabular data (e.g. Bias or "
@@ -503,17 +521,28 @@ def df_to_heatmap(df, cmap="bwr", cmap_shifted=True, normalise_rows=False,
         raise AttributeError("Heatmaps can only be plotted for single "
                              "column data (e.g. Bias, RMSE). Please "
                              "extract column first")
+    
     num_fmt = ".{}f".format(num_digits)
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
     else:
         fig = ax.figure
+    cbar_kws = {}
     if normalise_rows:
-        df = df.div(df.max(axis=1), axis=0)
-    center=None
-    if cmap_shifted:
-        center=0
-    ax = heatmap(df, center=center, cmap=cmap, annot=annot, ax=ax, fmt=num_fmt)
+        if normalise_rows_col is not None:
+            norm_ref = df.values[:, normalise_rows_col]
+            table_name += " (normalised using Col {})".format(normalise_rows_col)
+        else:
+            norm_ref = df.mean(axis=1)
+            table_name += " (normalised using row mean)"
+        df = df.subtract(norm_ref, axis=0).div(norm_ref, axis=0)
+        num_fmt = ".0%"
+        
+        cbar_kws['format'] = FuncFormatter(lambda x, pos: '{:.0%}'.format(x))
+        #df = df.div(df.max(axis=1), axis=0)
+    cbar_kws['label'] = table_name
+    ax = heatmap(df, center=center, cmap=cmap, annot=annot, ax=ax, fmt=num_fmt,
+                 cbar_kws=cbar_kws)
     fig.tight_layout()
     return ax
         
