@@ -493,10 +493,11 @@ def _background_gradient_list(s, m, M, cmap='bwr', low=0, high=0):
     return ['background-color: %s' % color for color in c]
 
 
-def df_to_heatmap(df, cmap="bwr", center=0, normalise_rows=False, 
-                  normalise_rows_col=None,
-                  annot=True, num_digits=2, ax=None, figsize=None, 
-                  table_name="", **kwargs):
+def df_to_heatmap(df, cmap="bwr", center=0, low=0.3, high=0.3, 
+                  color_rowwise=True,
+                  normalise_rows=False, normalise_rows_col=None,
+                  annot=True, table_name="", num_digits=2, ax=None, 
+                  figsize=(12,12), cbar=False, **kwargs):
     """Plot a dataframe as heatmap
     
     Parameters
@@ -507,9 +508,44 @@ def df_to_heatmap(df, cmap="bwr", center=0, normalise_rows=False,
         string specifying colormap to be used
     center : float
         value that is mapped to center colour of colormap (e.g. 0)
+    low : float
+        Extends lower range of the table values so that when mapped to  the 
+        colormap, it’s entire range isn’t used. E.g. 0.3 roughly corresponds 
+        to colormap crop of 30% at the lower end.
+    high : float
+        Extends upper range of the table values so that when mapped to the 
+        colormap, it’s entire range isn’t used. E.g. 0.3 roughly corresponds 
+        to colormap crop of 30% at the upper end.
+    color_rowwise : bool
+        if True, the color mapping is applied row by row, else, for the whole
+        table
     normalise_rows : bool
-        if True, the table is normalised in a rowwise manner
+        if True, the table is normalised in a rowwise manner either using the
+        mean value in each row (if argument ``normalise_rows_col`` is 
+        unspecified) or using the value in a specified column. 
+    normalise_rows_col : int, optional
+        if provided and if prev. arg. ``normalise_rows==True``, then the 
+        corresponding table column is used for normalisation rather than 
+        the mean value of each row
+    annot : bool
+        if True, the table values are printed into the heatmap
+    table_name : str
+        title of plot and label of colorbar (if colorbar is included, see cbar
+        option)
+    num_digits : int
+        number of digits printed in heatmap annotation
+    ax : axes
+        matplotlib axes instance used for plotting, if None, an axes will be
+        created
+    figsize : tuple
+        size of figure for plot
+    cbar : bool
+        if True, a colorbar is included
     
+    Returns
+    -------
+    axes
+        plot axes instance
     """
     
     if not isinstance(df.columns, pd.MultiIndex):
@@ -521,13 +557,14 @@ def df_to_heatmap(df, cmap="bwr", center=0, normalise_rows=False,
         raise AttributeError("Heatmaps can only be plotted for single "
                              "column data (e.g. Bias, RMSE). Please "
                              "extract column first")
-    
+        
     num_fmt = ".{}f".format(num_digits)
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
     else:
         fig = ax.figure
     cbar_kws = {}
+    
     if normalise_rows:
         if normalise_rows_col is not None:
             norm_ref = df.values[:, normalise_rows_col]
@@ -540,10 +577,21 @@ def df_to_heatmap(df, cmap="bwr", center=0, normalise_rows=False,
         
         cbar_kws['format'] = FuncFormatter(lambda x, pos: '{:.0%}'.format(x))
         #df = df.div(df.max(axis=1), axis=0)
+    if color_rowwise:
+        df_hm = df.div(abs(df).max(axis=1), axis=0)
+        #df_hm = df.div(df.max(axis=1), axis=0)
+    else:
+        df_hm = df
     cbar_kws['label'] = table_name
-    ax = heatmap(df, center=center, cmap=cmap, annot=annot, ax=ax, fmt=num_fmt,
-                 cbar_kws=cbar_kws)
+    if annot is True:
+        annot = df.values
+    vmin, vmax = df_hm.min().min() * (1-low), df_hm.max().max()*(1+high)
+    #print(vmin, vmax)
+    ax = heatmap(df_hm, center=center, cmap=cmap, annot=annot, ax=ax, fmt=num_fmt,
+                 cbar=cbar, cbar_kws=cbar_kws, vmin=vmin, vmax=vmax)
+    ax.set_title(table_name, fontsize=16)
     fig.tight_layout()
+    
     return ax
         
     
@@ -582,12 +630,15 @@ def my_table_display(df, cmap="bwr", low=0.5, high=0.5, c_nans="white",
         pandas Styler object ready for display
     """
     num_fmt = "{:." + str(num_digits) + "f}"
-    return df.style.apply(_background_gradient_list,
-                          cmap=cmap,
-                          m=df.min().min(),
-                          M=df.max().max(),
-                          low=low, 
-                          high=high).highlight_null(c_nans).format(num_fmt)
+    
+    styler = df.style.apply(_background_gradient_list,
+                            cmap=cmap,
+                            m=df.min().min(),
+                            M=df.max().max(),
+                            low=low, 
+                            high=high).highlight_null(c_nans).format(num_fmt)
+
+    return styler
 
 ### other helpers, math stuff
 def exponent(num):
