@@ -105,3 +105,6 @@ ENV/
 
 # .png files
 *.png
+
+# content of output directory
+output/*
