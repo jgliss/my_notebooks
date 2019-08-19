@@ -153,7 +153,7 @@ class Img(pyplis.Img):
         yp = np.arange(0,self.meta["pix_heigth"])
         yp=yp[::-1] # Reverse since image pixels go the other way around
         if verbose:
-            print "statistics", xp, yp, self.img.shape
+            print("statistics", xp, yp, self.img.shape)
 
         self.Centerline, self.mean = Centerline(xp, yp, self.img)
         self.Dispersion = AbsoluteDispersion(xp, yp, self.img, self.mean)
@@ -198,7 +198,7 @@ def load_MYSTIC_image(filebase, wavelengthA,loc,timestartstr,experimenttype,
     uvspecinputfile = filebase+uvinp
     uvspecoutputfile = filebase+uvout
     if verbose:
-        print "uvspecinputfile", uvspecinputfile
+        print("uvspecinputfile", uvspecinputfile)
         print "uvspecoutputfile", uvspecoutputfile
     ImgAM = Image.Image()
     ImgAM.GetUVSPECImageInputVals(uvspecinputfile)
