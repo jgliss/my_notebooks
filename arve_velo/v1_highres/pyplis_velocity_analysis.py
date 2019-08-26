@@ -24,8 +24,6 @@ from glob import glob
 
 FONTSIZE=20
 
-
-
 def Centerline(xs, ys, col2d):
     # Equation from Dosio and de Arellano (2006).
     Centerline = np.zeros(xs.shape[0])
@@ -154,7 +152,7 @@ class Img(pyplis.Img):
         yp = np.arange(0,self.meta["pix_heigth"])
         yp=yp[::-1] # Reverse since image pixels go the other way around
         if verbose:
-            print "statistics", xp, yp, self.img.shape
+            print("statistics", xp, yp, self.img.shape)
 
         self.Centerline, self.mean = Centerline(xp, yp, self.img)
         self.Dispersion = AbsoluteDispersion(xp, yp, self.img, self.mean)
@@ -199,8 +197,8 @@ def load_MYSTIC_image(filebase, wavelengthA,loc,timestartstr,experimenttype,
     uvspecinputfile = filebase+uvinp
     uvspecoutputfile = filebase+uvout
     if verbose:
-        print "uvspecinputfile", uvspecinputfile
-        print "uvspecoutputfile", uvspecoutputfile
+        print("uvspecinputfile", uvspecinputfile)
+        print("uvspecoutputfile", uvspecoutputfile)
     ImgAM = Image.Image()
     ImgAM.GetUVSPECImageInputVals(uvspecinputfile)
     ImgAM.ReadMYSTICradspcfile(uvspecoutputfile, flip_y=flip_y, Filter=Filter,
@@ -214,7 +212,8 @@ def load_MYSTIC_image(filebase, wavelengthA,loc,timestartstr,experimenttype,
     MYSTIC_AM.meta["pix_heigth"]=ImgAM.rad.shape[0]
     MYSTIC_AM.meta["pix_width"]=ImgAM.rad.shape[1]
     if verbose:
-        print "pix_heigth, pix_width", MYSTIC_AM.meta["pix_heigth"], MYSTIC_AM.meta["pix_width"]
+        print("pix_heigth, pix_width", MYSTIC_AM.meta["pix_heigth"], 
+              MYSTIC_AM.meta["pix_width"])
 
     ImgBM= Image.Image()
     uvspecinputfileBM=uvspecinputfile.replace(str(wavelengthA),str(wavelengthB))
@@ -236,8 +235,8 @@ def load_MYSTIC_image(filebase, wavelengthA,loc,timestartstr,experimenttype,
     uvspecinputfileA0=uvspecinputfileA0.replace(loc+timestartstr+experimenttype,loc+timestampBG+experimenttypeBG)
     uvspecoutputfileA0=uvspecinputfileA0.replace('.inp','.out')
     if verbose:
-        print "uvspecinputfileA0", uvspecinputfileA0
-        print "uvspecoutputfileA0", uvspecoutputfileA0
+        print("uvspecinputfileA0", uvspecinputfileA0)
+        print("uvspecoutputfileA0", uvspecoutputfileA0)
     ImgA0= Image.Image()
     ImgA0.GetUVSPECImageInputVals(uvspecinputfileA0)
     ImgA0.ReadMYSTICradspcfile(uvspecoutputfileA0, flip_y=flip_y, Filter=Filter,
@@ -324,8 +323,8 @@ if __name__=="__main__":
     import os
 
     if len(sys.argv) < 2:
-        COL_NUM1 = 300
-        COL_NUM2 = 305
+        COL_NUM1 = 205
+        COL_NUM2 = 210
         ROW_BOTTOM = 0+150
         ROW_TOP    = 110+150
     else:
@@ -370,6 +369,8 @@ if __name__=="__main__":
     # time step between images
     DT=6.25/4 #s
 
+    T0 = datetime.datetime(2017,1,1,0,0,0) # define arbitrary start time
+    
     # Create an example plume intersection
     # Camera geometry
     #    DY=(3.828125+3.028125)/2.
@@ -390,7 +391,7 @@ if __name__=="__main__":
     # 400/2 pixels in the horizontal gives horizontal pixel size
     DX = XS / 200. * 1000
 
-    print "DX, ", DX, DY, DZ, DS, XS
+    print("DX, ", DX, DY, DZ, DS, XS)
 
     # Clear sky ROI
     BG_ROI = [0, 10, 0, 40]
@@ -411,6 +412,9 @@ if __name__=="__main__":
                                   timestampBG, experimenttypeBG, flip_y=True,
                                   Filter=Filter,
                                   AddRows=True)
+    
+    times = [T0 + datetime.timedelta(x * DT / 86400.0) for x in range(len(ImagesAA))]
+    
     ### LOAD SMALL IMAGES (NOT USED CURRENTLY)
     ImagesAA_small, (pcs1_small, pcs2_small) = downscale_images_and_pcs_lines(
             ImagesAA, (pcs1, pcs2))
@@ -419,16 +423,24 @@ if __name__=="__main__":
     # (includes plotting of AA images with lines in it)
     ts_pcs1 = []
     ts_pcs2 = []
+    
+    images = []
+    
+    
+    
     for i, im in enumerate(ImagesAA):
         im.img = im.img  + noiseamp * im.img.std() * np.random.random(im.img.shape)
         # noisy = f + 0.4 * f.std() * np.random.random(f.shape)
         #            print im
         ax = im.show_img()
+        im.meta['start_acq'] = times[i]
+        im.edit_log['is_aa'] = True
         ax.set_title("AA image {} (pyrlevel {})".format(i+1, im.pyrlevel))
 
         pcs1.plot_line_on_grid(ax=ax)
         pcs2.plot_line_on_grid(ax=ax)
         ax.legend()
+        images.append(im)
         ax.figure.savefig('{}aa_img{}_N{}.png'.format(outdir, i,
                           noiseamp))
 
@@ -438,7 +450,27 @@ if __name__=="__main__":
 
     ### INTERPOLATE THE 2 PCS timeseries to better register the lag
     from scipy.interpolate import interp1d
-
+    flow = pyplis.OptflowFarneback(disp_skip=5)
+    
+    line = pcs1
+    props = pyplis.plumespeed.LocalPlumeProperties(line.line_id,
+                                                   color=line.color)
+    
+    veff = []
+    veff_err = []
+    for i in range(len(images)-1):
+        flow.calc_flow(images[i], images[i+1])
+        props.get_and_append_from_farneback(flow, line=line)
+    
+    
+    flow.plot()
+    
+    flow.plot_flow_histograms()
+    
+    props.plot()
+                                                                  
+    props.plot_velocities(pix_dist_m=DX, 
+                          normal_vec=line.normal_vector)
     # original index
     x = range(len(ts_pcs1))
 
@@ -503,5 +535,4 @@ if __name__=="__main__":
           .format(lag, DT, DX, velocity))
 
     print('Summary {} {} {} {} {}\n'
-          .format(lag, COL_NUM1, DT, DX, velocity)
-    )
+          .format(lag, COL_NUM1, DT, DX, velocity))
