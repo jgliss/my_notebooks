@@ -450,9 +450,12 @@ if __name__=="__main__":
 
     ### INTERPOLATE THE 2 PCS timeseries to better register the lag
     from scipy.interpolate import interp1d
-    flow = pyplis.OptflowFarneback(disp_skip=5)
+    flow = pyplis.OptflowFarneback(disp_skip=10)
     
     line = pcs1
+    line.set_rect_roi_rot(depth=30)
+    flow.roi_abs = line._roi_from_rot_rect()
+    
     props = pyplis.plumespeed.LocalPlumeProperties(line.line_id,
                                                    color=line.color)
     
@@ -462,15 +465,20 @@ if __name__=="__main__":
         flow.calc_flow(images[i], images[i+1])
         props.get_and_append_from_farneback(flow, line=line)
     
+    fig, ax = plt.subplots(1,1,figsize=(16,10))
+    flow.plot(ax=ax)
+    fig.savefig(outdir+'Farneback_example_output.png')
     
-    flow.plot()
+    fig = flow.plot_flow_histograms()
+    fig.savefig(outdir+'Farneback_example_histograms.png')
     
-    flow.plot_flow_histograms()
-    
-    props.plot()
+    fig = props.plot()
+    fig.savefig(outdir+'Farneback_plume_props_timeseries.png')
                                                                   
-    props.plot_velocities(pix_dist_m=DX, 
-                          normal_vec=line.normal_vector)
+    ax = props.plot_velocities(pix_dist_m=DX, 
+                               normal_vec=line.normal_vector)
+    
+    ax.figure.savefig(outdir+'Farneback_velocities.png')
     # original index
     x = range(len(ts_pcs1))
 

@@ -103,8 +103,5 @@ ENV/
 # .tex files
 *.tex
 
-# .png files
-*.png
-
 # content of output directory
 output/*
