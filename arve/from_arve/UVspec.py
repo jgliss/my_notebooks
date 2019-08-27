@@ -8,7 +8,7 @@ from glob import glob
 import time
 
 # Where are we
-myhost = ''#os.uname()[1]
+myhost = os.uname()[1]
 if myhost=='ak':
     home = os.environ['HOME']+'/'
 else:
@@ -33,11 +33,11 @@ class UVspec:
     def WriteInputFile(self, InputFile=None, verbose=False):
         self.InputFile=InputFile
         if verbose:
-            print("Writing uvspec input file", InputFile)
+            print "Writing uvspec input file", InputFile
         try:
             f = open(InputFile,'w')
         except:
-            print("UVspec.WriteInputFile: No uvspec input file name given.")
+            print "UVspec.WriteInputFile: No uvspec input file name given."
             exit()
         for key in self.inp:
             if verbose:
@@ -59,8 +59,8 @@ class UVspec:
 
     def SingleRun(self,inp, out, verbose):
         if verbose:
-            print("Running uvspec with input file: ", inp)
-            print("Output to file                : ", out)
+            print "Running uvspec with input file: ", inp
+            print "Output to file                : ", out
 
         cmd = home+'/develop/libRadtran/bin/uvspec '+  ' < ' + inp  +  ' > ' + out
         p   = call(cmd,shell=True,stdin=PIPE,stdout=PIPE)
@@ -69,9 +69,9 @@ class UVspec:
     def Run(self,inp, out, verbose=False, n_processes=1):
         debug=False # True
         if verbose:
-            print("Running uvspec with input file: ", inp)
-            print("Output to file                : ", out)
-            print("Number of processors          : ", n_processes)
+            print "Running uvspec with input file: ", inp
+            print "Output to file                : ", out
+            print "Number of processors          : ", n_processes
 
         tmp_out_base = 'tmp_mystic.out_'
         tmp_inp_base = 'tmp_mystic.inp_'
@@ -94,17 +94,16 @@ class UVspec:
             self.add_mc_basename_to_input_file(mc_basename,tmp_inp)
             tmp_out = tmp_out_base+str(i)
             if verbose:
-                print('Starting process:',i,' inp:',tmp_inp,' out:',tmp_out)
+                print 'Starting process:',i,' inp:',tmp_inp,' out:',tmp_out
             if not debug:
-                p = multiprocessing.Process(target=self.worker, 
-                                            args=(tmp_inp,tmp_out))
+                p = multiprocessing.Process(target=self.worker, args=(tmp_inp,tmp_out))
                 jobs.append(p)
                 p.start()
         for j in jobs:
             j.join()
 
         if verbose:
-            print('All processes done. Read output, average and calculate std.')
+            print 'All processes done. Read output, average and calculate std.'
         InputFiles = tmp_out_base+'NP_'+'*'+'.rad.spc'
         OutputFile= out
         Average_spc_Files(InputFiles, OutputFile, verbose=True)
@@ -147,11 +146,11 @@ def get_vals(fn,option):
 # This does not work with the new input options.....
 #        if ( l[0] == option ):
 #            vals = l[1:len(l)]
-#        print(l, option
+#        print l, option
         if option in line:
             nopts = len(option.split())
             vals = l[nopts:len(l)]
-#            print(l, option, nopts, vals
+#            print l, option, nopts, vals
 
     f.close()
     return vals
@@ -168,8 +167,7 @@ def Average_spc_Files(InputFiles, OutputFile, verbose=False):
                 nlin0=nlin
             else:
                 if nlin != nlin0:
-                    print('nlin: ' + str(nlin) + ', not equal nlin0: ' 
-                          + str(nlin0))
+                    print 'nlin: ' + str(nlin) + ', not equal nlin0: ' + str(nlin0)
                     exit(0)
             i = i + 1
 
@@ -195,7 +193,7 @@ def Average_spc_Files(InputFiles, OutputFile, verbose=False):
         s1        = radavg[l]
         arg       = s0*s2[l] - s1*s1
         if arg < 0.0:
-            print(sys.stderr, l, arg, s0, s1, s2[l])
+            print >> sys.stderr, l, arg, s0, s1, s2[l]
             arg = 0.0
         std       = (1.0/s0)*math.sqrt(arg)
         f.write('{0:8.2f} {1:3d} {2:3d} {3:3d} {4:9.4f} {5:9.4f}\n'.format(wvl[0,l], ix[0,l], iy[0,l], iz[0,l], s1/s0, std))
@@ -206,7 +204,7 @@ def Average_spc_Files(InputFiles, OutputFile, verbose=False):
 def read_rad_spc(fn, STD=False, verbose=False):
     # Read MYSTIC mc.rad.spc file
     if verbose:
-        print("Reading MYSTIC mc.rad.spc file: ", fn)
+        print "Reading MYSTIC mc.rad.spc file: ", fn
     if STD:
         wvl,ix,iy,iz,rad, std = np.loadtxt(fn, unpack=True)
         return (wvl,ix,iy,iz,rad,std)

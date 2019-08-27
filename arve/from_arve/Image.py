@@ -86,7 +86,7 @@ class Image:
             self.rad = ndimage.gaussian_filter(self.rad, sigma=0.75)
 
         if RemoveGhosts:
-            print("timestart", timestart)
+            print "timestart", timestart
             if timestart=='001':
                 self.rad[0:3, 197:203] = self.rad[0:3, 107:113]
             elif timestart=='002':
@@ -105,11 +105,10 @@ class Image:
             pass
 
         if AddRows:
-            print("self.ny,self.nx,self.nrgb", self.ny,
-                  self.nx,self.nrgb)
+            print "self.ny,self.nx,self.nrgb", self.ny,self.nx,self.nrgb
             tmpRAD = np.zeros((self.nx,self.nx))+80
             tmpSTD = np.zeros((self.nx,self.nx))+0.8
-            print(self.rad.shape, tmpRAD.shape)
+            print self.rad.shape, tmpRAD.shape
             tmpRAD[150:150+self.ny,:] = self.rad[0:self.ny,:]
             tmpSTD[150:150+self.ny,:] = self.std[0:self.ny,:]
             self.rad = tmpRAD
@@ -120,10 +119,9 @@ class Image:
         npix=len(indx[0])
         ntot=self.ny*self.nx
         if verbose:
-            print('Total number of pixels:', ntot)
-            print('Number of pixels with std< {:f}: {:d}'
-                  .format(std_limit, npix))
-            print('Percentage: {:f}'.format(100*float(npix)/ntot))
+            print 'Total number of pixels:', ntot
+            print 'Number of pixels with std< {:f}: {:d}'.format(std_limit, npix)
+            print 'Percentage: {:f}'.format(100*float(npix)/ntot)
 
     def GetUVSPECImageInputVals(self, fi):
         """
@@ -147,8 +145,8 @@ class Image:
             self.ny = int(vals[1])
             self.AspectRatio = float(self.ny)/float(self.nx)
         else:
-            print("Input file ",fi, " did not contain mc_sample_grid")
-            print("This is not a panorama input file. Exiting.")
+            print "Input file ",fi, " did not contain mc_sample_grid"
+            print "This is not a panorama input file. Exiting."
             exit(0)
         vals = UVspec.get_vals(fi,'mc_panorama_view')
         if len(vals) == 4:
@@ -159,8 +157,8 @@ class Image:
             self.theta1_org = float(vals[2])
             self.theta2_org = float(vals[3])
         else:
-            print("Input file ",fi, " did not contain mc_panorama_view")
-            print("This is not a panorama input file. Exiting.")
+            print "Input file ",fi, " did not contain mc_panorama_view"
+            print "This is not a panorama input file. Exiting."
             exit(0)
 
         vals = UVspec.get_vals(fi,'umu')
@@ -178,8 +176,8 @@ class Image:
             self.mc_panorama_alignment=True
         else:
             self.mc_panorama_alignment=False
-            print("Input file ",fi, " with camera not aligned")
-            print("Sure this is correct?")
+            print "Input file ",fi, " with camera not aligned"
+            print "Sure this is correct?"
 
 
         vals = UVspec.get_vals(fi,'mc_sensorposition')
@@ -210,7 +208,7 @@ class Image:
         fig = plt.figure(figsize=(self.Plotxsize,self.Plotysize))
         if std==True:
             tmpdat = self.STD
-            print("Mean STD", np.mean(tmpdat), np.mean(self.STD/self.rad))
+            print "Mean STD", np.mean(tmpdat), np.mean(self.STD/self.rad)
 
         else:
             tmpdat = self.rad
@@ -248,12 +246,12 @@ class Image:
         fig = plt.figure(figsize=(4*self.Plotxsize,self.Plotysize))
         if std==True:
             tmpdat = self.STD
-            print("Mean STD", np.mean(tmpdat), np.mean(self.STD/self.rad))
+            print "Mean STD", np.mean(tmpdat), np.mean(self.STD/self.rad)
 
         else:
             tmpdat = self.rad
 
-        print("Extent", Extent)
+        print "Extent", Extent
         ax = fig.add_subplot(131)
         self.cblabel='Radiance at 310 nm (mW m$^{-2}$ nm$^{-1}$)'
         self.PlotSingle(ax, fig, self.rad, Annotate=Annotate, Extent=Extent)
@@ -293,7 +291,7 @@ class Image:
         return
 
     def LineIntegrals(self, Camfile, Case, Slice=0):
-        print(self.fn)
+        print self.fn
         ixc=Slice
         fp = open(Camfile,'w')
         fp.write("{:s}\n".format( Case))
@@ -308,7 +306,7 @@ class Image:
             fp.write("{:d} {:f} {:f}\n".format( self.ny, self.theta1-offset, self.theta2-offset-dtheta)) #, self.nx,
         else:
             fp.write("{:d} {:f} {:f}\n".format( self.ny, offset-self.theta2-dtheta, offset-self.theta1)) #, self.nx,
-        print(dtheta)
+        print dtheta
         if 'A' in Case:
             iy=0
             while iy<self.ny:
@@ -379,7 +377,7 @@ if __name__ == "__main__":
 #    wavelength = float(wavelength[0])
 
 #uvspecoutputfile = './test_cloud/mc.rad.spc'
-#    print(uvspecoutputfile
+#    print uvspecoutputfile
     ImgAM = Image()
     if ART:
         ImgAM.Plotxsize=20
@@ -417,7 +415,7 @@ if __name__ == "__main__":
         uvspecoutputfileA0=uvspecinputfileA0.replace('.inp','.out')
 #        uvspecoutputfileA0=uvspecoutputfile.replace('_mc.rad.spc','-BG_mc.rad.spc')
         if verbose:
-            print(uvspecoutputfileA0)
+            print uvspecoutputfileA0
         ImgA0.GetUVSPECImageInputVals(uvspecinputfileA0)
         ImgA0.ReadMYSTICradspcfile(uvspecoutputfileA0)
 
@@ -425,7 +423,7 @@ if __name__ == "__main__":
         uvspecinputfileBM=uvspecinputfile.replace(str(wavelengthA),str(wavelengthB))
         uvspecoutputfileBM=uvspecoutputfile.replace(str(wavelengthA),str(wavelengthB))
         if verbose:
-            print(uvspecoutputfileBM)
+            print uvspecoutputfileBM
         ImgBM.GetUVSPECImageInputVals(uvspecinputfileBM)
         ImgBM.ReadMYSTICradspcfile(uvspecoutputfileBM)
 
@@ -434,7 +432,7 @@ if __name__ == "__main__":
         uvspecoutputfileB0=uvspecinputfileB0.replace('.inp','.out')
 #        uvspecoutputfileB0=uvspecoutputfileBM.replace('_mc.rad.spc','-BG_mc.rad.spc')
         if verbose:
-            print(uvspecoutputfileB0)
+            print uvspecoutputfileB0
         ImgB0.GetUVSPECImageInputVals(uvspecinputfileB0)
         ImgB0.ReadMYSTICradspcfile(uvspecoutputfileB0)
 
